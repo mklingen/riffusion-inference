@@ -87,6 +87,8 @@ This adds the following scripts:
 ### gui.py
 ![riffusion_gui](riffusion_gui.gif)
 
+Note that this may have more requirements that I forgot to add to requirements.txt, namely `pyaudio`.
+
 To run, `python -m riffusion.gui`, making sure this dir is in your PYTHONPATH, or running from within this dir.
 
 This is a simple local TKinter gui that can load, save, and iterate on .wav files. Note that the first "generate" step will take a long time, especially if it hasn't downloaded the model yet. Check the console for details.
