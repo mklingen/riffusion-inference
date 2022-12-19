@@ -78,3 +78,20 @@ If you build on this work, please cite it as follows:
   year = {2022}
 }
 ```
+
+
+## mklingen Changes
+
+This adds the following scripts:
+
+### gui.py
+![riffusion_gui](riffusion_gui.gif)
+
+To run, `python -m riffusion.gui`, making sure this dir is in your PYTHONPATH, or running from within this dir.
+
+This is a simple local TKinter gui that can load, save, and iterate on .wav files. Note that the first "generate" step will take a long time, especially if it hasn't downloaded the model yet. Check the console for details.
+
+Please note that .wav files must be 16 bit, mono and exactly 5 seconds long or things might break.
+
+### riffusion.py
+Same as above, but it's a command line interface. Can be used to write a single .wav file. Similar to the flask app, but no web stuff.

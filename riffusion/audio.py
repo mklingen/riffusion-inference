@@ -10,55 +10,82 @@ import pydub
 from scipy.io import wavfile
 import torch
 import torchaudio
+import matplotlib.pyplot as plt
 
 
-def wav_bytes_from_spectrogram_image(image: Image.Image) -> T.Tuple[io.BytesIO, float]:
+class Constants:
+    def __init__(self):
+        self.max_volume = 50
+        self.power_for_image = 0.25
+        self.sample_rate = 44100  # [Hz]
+        self.clip_duration_ms = 5000  # [ms]
+
+        self.bins_per_image = 512
+        self.n_mels = 512
+
+        # FFT parameters
+        self.window_duration_ms = 100  # [ms]
+        self.padded_duration_ms = 400  # [ms]
+        self.step_size_ms = 10  # [ms]
+
+        self.n_fft = int(self.padded_duration_ms / 1000.0 * self.sample_rate)
+        self.hop_length = int(self.step_size_ms / 1000.0 * self.sample_rate)
+        self.win_length = int(self.window_duration_ms / 1000.0 * self.sample_rate)
+        self.num_samples = int(self.bins_per_image / float(self.bins_per_image) * self.clip_duration_ms) * self.sample_rate
+    
+def wav_bytes_from_spectrogram_image(image: Image.Image, show_waveform=False, show_spectrogram=False) -> T.Tuple[io.BytesIO, float]:
     """
     Reconstruct a WAV audio clip from a spectrogram image. Also returns the duration in seconds.
     """
-
-    max_volume = 50
-    power_for_image = 0.25
-    Sxx = spectrogram_from_image(image, max_volume=max_volume, power_for_image=power_for_image)
-
-    sample_rate = 44100  # [Hz]
-    clip_duration_ms = 5000  # [ms]
-
-    bins_per_image = 512
-    n_mels = 512
-
-    # FFT parameters
-    window_duration_ms = 100  # [ms]
-    padded_duration_ms = 400  # [ms]
-    step_size_ms = 10  # [ms]
-
-    # Derived parameters
-    num_samples = int(image.width / float(bins_per_image) * clip_duration_ms) * sample_rate
-    n_fft = int(padded_duration_ms / 1000.0 * sample_rate)
-    hop_length = int(step_size_ms / 1000.0 * sample_rate)
-    win_length = int(window_duration_ms / 1000.0 * sample_rate)
+    if show_spectrogram:
+        image.show()
+    constants = Constants()
+    Sxx = spectrogram_from_image(image, max_volume=constants.max_volume, power_for_image=constants.power_for_image)
 
     samples = waveform_from_spectrogram(
         Sxx=Sxx,
-        n_fft=n_fft,
-        hop_length=hop_length,
-        win_length=win_length,
-        num_samples=num_samples,
-        sample_rate=sample_rate,
+        n_fft=constants.n_fft,
+        hop_length=constants.hop_length,
+        win_length=constants.win_length,
+        num_samples=constants.num_samples,
+        sample_rate=constants.sample_rate,
         mel_scale=True,
-        n_mels=n_mels,
+        n_mels=constants.n_mels,
         max_mel_iters=200,
         num_griffin_lim_iters=32,
     )
-
+    if show_waveform:
+        plt.plot(samples)
+        plt.show()
     wav_bytes = io.BytesIO()
-    wavfile.write(wav_bytes, sample_rate, samples.astype(np.int16))
+    wavfile.write(wav_bytes, constants.sample_rate, samples.astype(np.int16))
     wav_bytes.seek(0)
 
-    duration_s = float(len(samples)) / sample_rate
+    duration_s = float(len(samples)) / constants.sample_rate
 
     return wav_bytes, duration_s
 
+def image_from_spectrogram(
+    data: np.ndarray, max_volume: float = 50, power_for_image: float = 0.25
+) -> Image.Image:
+    """
+    Compute a spectrogram magnitude array from a spectrogram image.
+
+    TODO(hayk): Add image_from_spectrogram and call this out as the reverse.
+    """
+    # Reverse the power curve
+    data = np.power(data.astype(np.float64), power_for_image).astype(np.float32)
+    # Rescale to max volume
+    data = data * (1.0 / (max_volume / 255))
+
+    # Invert
+    data = 255 - data
+
+    # Flip Y take a single channel
+    data = data[::-1, :]
+
+    print(data)
+    return Image.fromarray(data).convert("RGB")
 
 def spectrogram_from_image(
     image: Image.Image, max_volume: float = 50, power_for_image: float = 0.25
@@ -69,7 +96,7 @@ def spectrogram_from_image(
     TODO(hayk): Add image_from_spectrogram and call this out as the reverse.
     """
     # Convert to a numpy array of floats
-    data = np.array(image).astype(np.float32)
+    data = np.array(image).astype(np.float64)
 
     # Flip Y take a single channel
     data = data[::-1, :, 0]
@@ -82,7 +109,6 @@ def spectrogram_from_image(
 
     # Reverse the power curve
     data = np.power(data, 1 / power_for_image)
-
     return data
 
 
@@ -146,7 +172,7 @@ def waveform_from_spectrogram(
     This is an approximate inverse of spectrogram_from_waveform, using the Griffin-Lim algorithm
     to approximate the phase.
     """
-    Sxx_torch = torch.from_numpy(Sxx).to(device)
+    Sxx_torch = torch.from_numpy(Sxx).to(device).to(torch.float32)
 
     # TODO(hayk): Make this a class that caches the two things
 
