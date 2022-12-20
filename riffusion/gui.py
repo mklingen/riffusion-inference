@@ -21,7 +21,7 @@ from huggingface_hub import hf_hub_download
 from PIL import Image, ImageTk
 
 from .audio import (Constants, image_from_spectrogram,
-                    mp3_bytes_from_wav_bytes, spectrogram_from_waveform,
+                    mp3_bytes_from_wav_bytes, spectrogram_from_waveform, chunk_spectrograms_from_waveform, concat_wav_bytes_multi_spectrogram_images,
                     wav_bytes_from_spectrogram_image)
 from .datatypes import InferenceInput, PromptInput
 from .riffusion_pipeline import RiffusionPipeline
@@ -111,33 +111,56 @@ class WaveformInfo:
         else:
             self.mp3_bytes = None
 
+class MultiWaveformInfo:
+    def __init__(self, images : list, compute_mp3=True):
+        """Manages a waveform, computing it from multiple images. Optionally computes MP3 bytes."""
+        self.wav_bytes = concat_wav_bytes_multi_spectrogram_images(images, Constants())
+        if compute_mp3:
+            self.mp3_bytes = mp3_bytes_from_wav_bytes(self.wav_bytes)
+        else:
+            self.mp3_bytes = None
+
 class SpectrumImage:
-    def __init__(self, img_size=(512, 512), init_color="red"):
+    def __init__(self, img_size=(512, 512), n_images=1, init_color="red"):
         """Manages a spectrograph image, and provides hooks to convert to wav or mp3."""
         self.img_size = img_size
-        # PIL representation of the image.
-        self.pil_img = Image.new("RGB", self.img_size, init_color)
-        # Tkinter representation of the image.
-        self.tk_img = ImageTk.PhotoImage(self.pil_img)
+        self.setup_num_images(n_images)
         # TKinter label holding the image.
         self.label = None
+
+    def setup_num_images(self, n_images):
+        self.n_images = n_images
+        # PIL representation of the image.
+        self.pil_imgs = []
+        for i in range(0, n_images):
+            self.pil_imgs.append(Image.new("RGB", self.img_size, "red"))
+        self.concat_img = Image.new("RGB", (self.img_size[1] * self.n_images, self.img_size[0]), "red")
+        self.fused_img = self.concat_img.resize(self.img_size)
+        # Tkinter representation of the image.
+        self.tk_img = ImageTk.PhotoImage(self.fused_img)
 
     def create_label(self, root : tk.Widget):
         """Creates a tkinter label for the image."""
         self.label = tk.Label(root, image=self.tk_img)
         return self.label
 
-    def copy_from(self, img : Image.Image):
+    def copy_from(self, imgs : list):
         """Deep copies the data from another PIL image and computes a waveform."""
-        self.pil_img.paste(img, (0,0))
-        self.tk_img.paste(img)
+        if len(imgs) != len(self.pil_imgs):
+            self.setup_num_images(len(imgs))
+        for i in range(0, len(imgs)):
+            self.pil_imgs[i].paste(imgs[i], (0,0))
+            self.concat_img.paste(imgs[i], (i * self.img_size[1], 0))
+        self.fused_img = self.concat_img.resize(self.img_size)
+        self.tk_img.paste(self.fused_img)
         if self.label:
+            self.label["image"] = self.tk_img
             self.label.configure()
         self.waveform = self.compute_waveform()
 
     def compute_waveform(self):
         """Computes and returns the waveform."""
-        return WaveformInfo(self.pil_img, compute_mp3=False)
+        return MultiWaveformInfo(self.pil_imgs, compute_mp3=False)
 
     def on_play_pressed(self, audio_manager):
         """Callback for when the play button is pressed."""
@@ -179,12 +202,20 @@ class SpectrumImage:
             
             # Read the entire wave file into memory
             constants = Constants()
-            # Get samples (todo, assumes length!)
+            if sample_rate != constants.sample_rate:
+                raise ValueError("Unfortunately, only sample rates of {} are supported".format(constants.sample_rate))
+            
+            # Get samples.
             data = np.frombuffer(wav_file.readframes(num_frames), dtype=np.int16)
             # Convert to spectrogram, then to image.
-            spectro = spectrogram_from_waveform(data, sample_rate, constants.n_fft, constants.hop_length, constants.win_length, True, constants.n_mels)
-            img = image_from_spectrogram(spectro)
-            self.copy_from(img)
+            spectros = chunk_spectrograms_from_waveform(data, constants)
+            if len(spectros) != self.n_images:
+                self.setup_num_images(len(spectros))
+            imgs = []
+            for spectro in spectros:
+                spectro_img = image_from_spectrogram(spectro)
+                imgs.append(spectro_img)
+            self.copy_from(imgs)
 
 class LabeledTextEditor:
     def __init__(self, name : str, parent : tk.Widget):
@@ -241,8 +272,8 @@ class RiffusionGUI:
         self.background_thread = None
         # Load the default image.
         if default_img_key:
-            self.seed_image.copy_from(maybe_load_default_image(default_img_key))
-            self.generated_image.copy_from(self.seed_image.pil_img)
+            self.seed_image.copy_from([maybe_load_default_image(default_img_key)])
+            self.generated_image.copy_from(self.seed_image.pil_imgs)
 
     def set_enabled(self, enabled : bool):
         """Enables/disables the various widgets. This is used during long running background operations."""
@@ -282,8 +313,8 @@ class RiffusionGUI:
         self.generated_image = SpectrumImage(self.img_size)
         self.seed_label = tk.Label(self.root , text="Seed")
         self.generated_label = tk.Label(self.root , text="Generated")
-        self.seed_display = self.seed_image.create_label(self.root )
-        self.generated_display = self.generated_image.create_label(self.root )
+        self.seed_display = self.seed_image.create_label(self.root)
+        self.generated_display = self.generated_image.create_label(self.root)
         self.seed_play_button = tk.Button(self.root , text="Play", command=lambda:self.do_in_background(lambda:self.seed_image.on_play_pressed(self.audio_manager)))
         self.generated_play_button = tk.Button(self.root , text="Play", command=lambda:self.do_in_background(lambda:self.generated_image.on_play_pressed(self.audio_manager)))
         
@@ -344,7 +375,6 @@ class RiffusionGUI:
 
     def generate(self):
         """Generates a new image from the parameters."""
-        # TODO(mklingen) do this in a thread.
         global MODEL
         if not MODEL:
             setup(self.checkpoint)
@@ -353,9 +383,13 @@ class RiffusionGUI:
         guidance = self.guidance_slider.variable.get()
         alpha = self.alpha_slider.variable.get()
         iters = self.iters_spinner.variable.get()
-        inf_input =  InferenceInput(PromptInput(self.prompt_1.entry_text.get(), seed, denoising, guidance), PromptInput(self.prompt_2.entry_text.get(), seed, denoising, guidance), alpha, iters, None, None)
-        gen_img = compute(inf_input, self.seed_image.pil_img)
-        self.generated_image.copy_from(gen_img)
+        gen_imgs = []
+        # Compute a new image for every single chunk.
+        for img in self.seed_image.pil_imgs:
+            inf_input =  InferenceInput(PromptInput(self.prompt_1.entry_text.get(), seed, denoising, guidance), PromptInput(self.prompt_2.entry_text.get(), seed, denoising, guidance), alpha, iters, None, None)
+            gen_imgs.append(compute(inf_input, img))
+
+        self.generated_image.copy_from(gen_imgs)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
