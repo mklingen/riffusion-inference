@@ -5,8 +5,6 @@ files from /riffusion in the standard /model directory of the Truss.
 
 For more on the Truss file format, see https://truss.baseten.co/
 """
-
-import base64
 import dataclasses
 import json
 import io
@@ -167,9 +165,3 @@ class Model:
         image.save(image_bytes, mode)
         image_bytes.seek(0)
         return image_bytes
-
-    def base64_encode(self, buffer: io.BytesIO) -> str:
-        """
-        Encode the given buffer as base64.
-        """
-        return base64.encodebytes(buffer.getvalue()).decode("ascii")

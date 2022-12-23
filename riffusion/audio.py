@@ -12,6 +12,7 @@ import torch
 import torchaudio
 import matplotlib.pyplot as plt
 import math
+import base64
 
 
 class Constants:
@@ -188,18 +189,23 @@ def chunk_waveform(waveform: np.ndarray, constants : Constants):
     num_chunks = int(math.ceil(total_samples / num_samples))
     if total_samples < num_samples:
         num_chunks = 1
-        print("Fewer samples than expected. File is short. Will try to pad it.")
+        print("Fewer samples {} than expected. File is short. Will try to pad it.".format(total_samples))
+    # Special case for empty, simply return 0.
+    if total_samples == 0:
+        return [np.zeros((num_samples,), dtype=np.float16)]
     # Initialize empty list for storing the chunks.
     chunks = []
 
     # Loop through the waveform, extracting 5-second chunks.
     for i in range(num_chunks):
-        print("Chunking from {} to {}".format(min(i*num_samples, total_samples - 1), min((i+1)*num_samples, total_samples)))
-        chunk = waveform[min(i*num_samples, total_samples - 1):min((i+1)*num_samples, total_samples)]
+        start_chunk = min(i*num_samples, total_samples - 1)
+        end_chunk =  min((i+1)*num_samples, total_samples)
+        print("Chunking from {} to {}".format(start_chunk, end_chunk))
+        chunk = waveform[start_chunk:end_chunk]
         print("Resulting chunk had length {}".format(chunk.shape[0]))
         if chunk.shape[0] < num_samples:
-            diff = min(num_samples - chunk.shape[0], total_samples)
-            if (num_samples - diff) / num_samples < 0.25:
+            diff = num_samples - chunk.shape[0]
+            if (num_samples - diff) / num_samples < 0.25 and len(chunks) > 0:
                 print("Final chunk was too small. Deleting the rest of the clip.")
                 break
             print("Appending {} padding samples. Chunk size is {}/{}".format(diff, chunk.shape[0], num_samples))
@@ -210,7 +216,7 @@ def chunk_waveform(waveform: np.ndarray, constants : Constants):
     print("Should be {} chunk(s) in this file".format(len(chunks)))
     return chunks
 
-def chunk_spectrograms_from_waveform(waveform: np.ndarray, constants : Constants):
+def chunk_spectrograms_from_waveform(waveform: np.ndarray, constants : Constants) -> list:
     """Takes in a waveform (for example, from a .wav file) expressed as a numpy array 
     of samples that are 16 bit, and a sample rate (in Hz), and outputs a series of chunks 
     that are precisely 5 seconds long covering the waveform as a spectrogram. If the waveform is less than 5 seconds long,
@@ -311,6 +317,17 @@ def waveform_from_spectrogram(
 
     return waveform
 
+def base64_encode(buffer: io.BytesIO) -> str:
+    """
+    Encode the given buffer as base64.
+    """
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+def base64_decode(buffer: bytes) -> bytes:
+    """
+    Decode the given buffer as base64.
+    """
+    return base64.b64decode(buffer)
 
 def mp3_bytes_from_wav_bytes(wav_bytes: io.BytesIO) -> io.BytesIO:
     mp3_bytes = io.BytesIO()
@@ -318,3 +335,7 @@ def mp3_bytes_from_wav_bytes(wav_bytes: io.BytesIO) -> io.BytesIO:
     sound.export(mp3_bytes, format="mp3")
     mp3_bytes.seek(0)
     return mp3_bytes
+
+def wav_from_base_64(data : str) -> bytes:
+    data_bytes = base64_decode(data.encode("ascii"))
+    return data_bytes

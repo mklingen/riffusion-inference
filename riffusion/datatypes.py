@@ -66,3 +66,40 @@ class InferenceOutput:
 
     # The duration of the audio clip
     duration_s: float
+
+
+@dataclass(frozen=True)
+class VstInput:
+    """
+    Parameters for a single run of the riffusion model, interpolating between
+    a start and end set of PromptInputs. This is the API required for a request
+    to the model server. (for input into the VST)
+    """
+
+    # Start point of interpolation
+    start: PromptInput
+
+    # End point of interpolation
+    end: PromptInput
+
+    # Interpolation alpha [0, 1]. A value of 0 uses start fully, a value of 1
+    # uses end fully.
+    alpha: float
+
+    # Number of inner loops of the diffusion model
+    num_inference_steps: int = 50
+    
+     # base64 encoded audio clip as a wav at 44.1khz. 16-bit encoded.
+    audio: str = ""
+
+    # ID of mask image to use
+    mask_image_id: T.Optional[str] = None
+
+
+@dataclass(frozen=True)
+class VstOutput:
+    """
+    Response from the model inference server.
+    """
+    # base64 encoded audio clip as a wav at 44.1khz. 16-bit encoded.
+    audio: str
