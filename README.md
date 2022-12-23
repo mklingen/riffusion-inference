@@ -95,5 +95,14 @@ This is a simple local TKinter gui that can load, save, and iterate on .wav file
 
 Please note that .wav files must be 16 bit, mono and exactly 5 seconds long or things might break.
 
+# vst_server.py
+This is a server backend for the VST plugin (https://github.com/mklingen/RiffusionVST). Run using
+
+```
+python -m riffusion.vst_server
+```
+
+from this local directory. Note that this differs from the standard riffusion server because it allows for input of raw .wav data directly from the plugin, and raw .wav data back out.
+
 ### riffusion.py
 Same as above, but it's a command line interface. Can be used to write a single .wav file. Similar to the flask app, but no web stuff.
