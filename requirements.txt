@@ -6,8 +6,12 @@ flask
 flask_cors
 numpy
 pillow
+plotly
 pydub
 scipy
+soundfile
+sox
+streamlit
 torch
 torchaudio
 transformers

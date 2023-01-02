@@ -1,9 +1,10 @@
 """
 Data model for the riffusion API.
 """
+from __future__ import annotations
 
-from dataclasses import dataclass
 import typing as T
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class InferenceOutput:
     """
     Response from the model inference server.
     """
+
     # base64 encoded spectrogram image as a JPEG
     image: str
 
